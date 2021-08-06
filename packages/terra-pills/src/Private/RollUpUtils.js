@@ -6,7 +6,7 @@ const getPillWidth = (pill) => {
 
 const handleRollUp = (pillListRef) => {
   const rollUpPill = pillListRef.current.querySelector('[data-terra-rollup-pill]');
-  const containerWidth = pillListRef.current.getBoundingClientRect().width;
+  const containerWidth = pillListRef.current.clientWidth;
   let rollupPillWidth;
   if (rollUpPill) {
     rollupPillWidth = getPillWidth(rollUpPill);
@@ -23,7 +23,7 @@ const handleRollUp = (pillListRef) => {
     }
     const pillWidth = getPillWidth(pills[i]);
     if (pillWidth + totalPillWidth < containerWidth) {
-      startIndex += 1;
+      startIndex = i + 1;
     } else if (rollupPillWidth + totalPillWidth > containerWidth) {
       startIndex -= 1;
     }

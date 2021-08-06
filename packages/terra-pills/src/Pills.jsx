@@ -9,6 +9,7 @@ import classNames from 'classnames';
 import classNamesBind from 'classnames/bind';
 import ThemeContext from 'terra-theme-context';
 import { injectIntl } from 'react-intl';
+import ResponsiveElement from 'terra-responsive-element';
 import VisuallyHiddenText from 'terra-visually-hidden-text';
 import Pill from './Private/_Pill';
 import styles from './Private/Pill.module.scss';
@@ -76,24 +77,23 @@ const Pills = (props) => {
 
   const theme = React.useContext(ThemeContext);
   const pillsRef = useRef();
-  const rollupCount = useRef(children.length);
-  const [updatedChildren, setUpdatedChildren] = useState(children);
   const focusNode = useRef(0);
   const currentPill = useRef();
   const [containerTabindex, setContainerTabindex] = useState('-1');
   const isRollUpRemoved = useRef(false);
   const prevPillsCount = useRef(0);
+  const [updatedCount, setUpdatedCount] = useState(React.Children.count(children));
+  const [rollUpCount, setRollUpCount] = useState(children.length);
 
   const generateRollUp = useCallback(() => {
     const startIndex = RollUpUtils.handleRollUp(pillsRef);
-
-    rollupCount.current = (children.length - startIndex);
-    const reducedArray = React.Children.toArray(children).splice(0, startIndex);
-    setUpdatedChildren(reducedArray);
+    setUpdatedCount(startIndex);
+    setRollUpCount(children.length - startIndex);
   }, [children]);
 
   const generateExpansion = useCallback(() => {
-    setUpdatedChildren(children);
+    setRollUpCount(0);
+    setUpdatedCount(React.Children.count(children));
   }, [children]);
 
   useLayoutEffect(() => {
@@ -121,8 +121,10 @@ const Pills = (props) => {
   useEffect(() => {
     const pills = [...pillsRef.current.querySelectorAll('[data-terra-pill]')];
     const rollUpPill = pillsRef.current.querySelector('[data-terra-rollup-pill]');
+
+    // if there is a roll Up pill, set tabindex to -1
     if (rollUpPill) {
-      pills.push(rollUpPill);
+      rollUpPill.setAttribute('tabindex', '-1');
     }
 
     if (pills.length > 0) {
@@ -132,23 +134,44 @@ const Pills = (props) => {
     }
 
     // Determine the first focusable pill
+    const firstFocusableNode = RollUpUtils.getFirstFocusableNode(pills, focusNode.current);
     if (focusNode.current === 0) {
-      focusNode.current = RollUpUtils.getFirstFocusableNode(pills, focusNode.current);
+      focusNode.current = firstFocusableNode;
+    }
+    if (pills.length > 0 && currentPill.current !== 'rollup-pill') {
+      if (firstFocusableNode === undefined && rollUpPill && isCollapsed) { // if the pills before rollUp pill are not focusable, focus the rollUp
+        currentPill.current = rollUpPill.getAttribute('id');
+        setTabIndex('0');
+      } else if (firstFocusableNode >= focusNode.current) {
+        focusNode.current = firstFocusableNode;
+        currentPill.current = pills[focusNode.current].id;
+        setTabIndex('0');
+      }
     }
 
-    // change tabIndex for first focusable element
-    if (pills.length > 0 && pills.length > focusNode.current) {
-      currentPill.current = pills[focusNode.current].id;
+    // if the first pill is rollUp pill, set rollUp pill tabindex 0
+    if (isCollapsed && rollUpPill && pills.length === 0) {
+      currentPill.current = rollUpPill.getAttribute('id');
       setTabIndex('0');
-      prevPillsCount.current = pills.length;
+      focusNode.current = 0;
     }
+
+    prevPillsCount.current = pills.length;
+
     // To focus the immediate focusable pill after the rollUp pill is selected
-    if (pills.length === children.length && isRollUpRemoved.current) {
+    if (isRollUpRemoved.current) {
+      const nextFocusableNode = RollUpUtils.getNextFocusableNode(pills, focusNode.current);
+      if (nextFocusableNode > focusNode.current) {
+        focusNode.current = nextFocusableNode;
+        currentPill.current = pills[focusNode.current].id;
+        setTabIndex('0');
+      }
       focusCurrentNode();
     }
-  }, [isCollapsed, children, updatedChildren]);
+  }, [isCollapsed, children, updatedCount]);
 
   const focusNextNode = (pills, rollUpPill) => {
+    const allPills = React.Children.toArray(children);
     // if the next pill is roll up pill, focus the roll up pill
     if (focusNode.current + 1 === pills.length && rollUpPill) {
       setTabIndex('-1');
@@ -160,51 +183,88 @@ const Pills = (props) => {
     // focus the next pill
     if (focusNode.current + 1 < pills.length) {
       const nextFocusableNode = RollUpUtils.getNextFocusableNode(pills, focusNode.current);
-      setTabIndex('-1');
-      focusNode.current = nextFocusableNode;
-      currentPill.current = pills[focusNode.current].id;
-      setTabIndex('0');
-      focusCurrentNode();
+      // if there no focusable pills, focus the rollUpPill
+      if (nextFocusableNode === focusNode.current && rollUpPill) {
+        setTabIndex('-1');
+        currentPill.current = rollUpPill.getAttribute('id');
+        setTabIndex('0');
+        focusCurrentNode();
+      } else {
+        setTabIndex('-1');
+        focusNode.current = nextFocusableNode;
+        currentPill.current = allPills[focusNode.current].props.id;
+        setTabIndex('0');
+        focusCurrentNode();
+      }
     }
   };
 
   const focusPreviousNode = (pills, rollUpPill) => {
-    // if the focused pill is roll up pill, then focus the immediate previous pill
+    const allPills = React.Children.toArray(children);
+    // if the focused pill is roll up pill, then focus the immediate previous pill that was in focus
     if (rollUpPill && currentPill.current === 'rollup-pill') {
       setTabIndex('-1');
-      focusNode.current = pills.length - 1;
-      currentPill.current = pills[focusNode.current].id;
+      currentPill.current = allPills[focusNode.current].props.id;
       setTabIndex('0');
       focusCurrentNode();
     } else if (focusNode.current >= 1) { // focus the previous pill
       const prevFocusableNode = RollUpUtils.getPreviousFocusableNode(pills, focusNode.current);
       setTabIndex('-1');
       focusNode.current = prevFocusableNode;
-      currentPill.current = pills[focusNode.current].id;
+      currentPill.current = allPills[focusNode.current].props.id;
       setTabIndex('0');
       focusCurrentNode();
     }
   };
 
-  // lp052179 - Not complete - Fails when there is a roll up
-  const focusNodeAfterDelete = (pills, rollUpPill, pillCount) => {
-    if (pills[focusNode.current].hasAttribute('data-terra-pill-removable')) {
+  const focusNodeAfterDelete = (pills, rollUpPill, pillCount, isRemovable) => {
+    if (isRemovable) {
       // If there is only one pill and is removable
-      if (pills.length === 1) {
+      if (pills.length === 1 && rollUpPill === null) {
         setContainerTabindex('0');
         pillsRef.current.focus();
+        return;
       }
-      if (pills.length - 1 !== 0 && (pills.length - 1 < prevPillsCount.current)) {
+      if (pills.length - 1 < prevPillsCount.current) {
         setTabIndex('-1');
         if (focusNode.current === 0) { // If the first pill is deleted, focus the next pill
-          const nextFocusableNode = RollUpUtils.getNextFocusableNode(pills, focusNode.current);
-          if (nextFocusableNode > focusNode.current) {
-            currentPill.current = pills[nextFocusableNode].id;
+          if (rollUpPill) {
+            if (pills.length === 1) { // if there is only one pill and roll up, then focus the roll up(There is no guarantee the next pill will fit inside the container)
+              currentPill.current = rollUpPill.getAttribute('id');
+            } else {
+              const nextFocusableNode = RollUpUtils.getNextFocusableNode(pills, focusNode.current);
+              if (nextFocusableNode > focusNode.current) {
+                currentPill.current = pills[nextFocusableNode].id;
+              } else if (nextFocusableNode === undefined || nextFocusableNode === focusNode.current) {
+                currentPill.current = rollUpPill.getAttribute('id');
+              }
+            }
+          } else {
+            const nextFocusableNode = RollUpUtils.getNextFocusableNode(pills, focusNode.current);
+            if (nextFocusableNode > focusNode.current) {
+              currentPill.current = pills[nextFocusableNode].id;
+            } else { // if there are no more focusable pills, focus the container
+              setContainerTabindex('0');
+              pillsRef.current.focus();
+              return;
+            }
           }
         } else if (focusNode.current !== 0) { // focus the previous pill if the current pill is delelted
           const prevFocusableNode = RollUpUtils.getPreviousFocusableNode(pills, focusNode.current);
-          if (prevFocusableNode < focusNode.current) {
+          const nextFocusableNode = RollUpUtils.getNextFocusableNode(pills, focusNode.current);
+          if ((prevFocusableNode === undefined || prevFocusableNode === focusNode.current) && (nextFocusableNode === undefined || nextFocusableNode === focusNode.current)) { // if there are no focusable pills after deleting
+            if (rollUpPill) { //  rollup, then focus the rollup pill
+              currentPill.current = rollUpPill.getAttribute('id');
+            } else { // focus the container
+              setContainerTabindex('0');
+              pillsRef.current.focus();
+              return;
+            }
+          } else if (prevFocusableNode < focusNode.current) {
             focusNode.current = prevFocusableNode;
+            currentPill.current = pills[focusNode.current].id;
+          } else {
+            focusNode.current = nextFocusableNode;
             currentPill.current = pills[focusNode.current].id;
           }
         }
@@ -221,6 +281,7 @@ const Pills = (props) => {
     const pills = [...pillsRef.current.querySelectorAll('[data-terra-pill]')];
     const pillCount = pills.length;
     const rollUpPill = pillsRef.current.querySelector('[data-terra-rollup-pill]');
+    const isPillRemovable = event.target.hasAttribute('data-terra-pill-removable');
 
     switch (event.keyCode) {
       case KEY_RIGHT:
@@ -233,7 +294,7 @@ const Pills = (props) => {
         break;
       case KEY_BACK_SPACE || KEY_DELETE:
         event.preventDefault();
-        focusNodeAfterDelete(pills, rollUpPill, pillCount);
+        focusNodeAfterDelete(pills, rollUpPill, pillCount, isPillRemovable);
         break;
       default:
         break;
@@ -255,11 +316,16 @@ const Pills = (props) => {
 
     if (event.type === 'keydown') {
       isRollUpRemoved.current = true;
+      setUpdatedCount(React.Children.count(children));
     }
-    const pills = pillsRef.current.querySelectorAll('[data-terra-pill]');
-    // lp052179 -> incomplete - focusNode.current should be set to next focusable pill from the chldren.
-    focusNode.current = pills.length;
-    currentPill.current = children[focusNode.current].props.id;
+  };
+
+  const handleWidthChange = () => {
+    if (isCollapsed) {
+      setUpdatedCount(React.Children.count(children));
+      setRollUpCount(children.length);
+      generateRollUp();
+    }
   };
 
   const pillsProps = {};
@@ -282,27 +348,32 @@ const Pills = (props) => {
       return undefined;
     });
 
-    return pills;
+    const reducedArray = pills.splice(0, updatedCount);
+
+    return reducedArray;
   };
 
   return (
-    <div
-      {...pillsProps}
-      aria-label={!ariaLabelledBy ? ariaLabel : undefined}
-      aria-describedby={ariaDescribedBy}
-      className={pillListClassNames}
-      ref={pillsRef}
-      tabIndex={containerTabindex}
-      {...customProps}
-    >
-      <VisuallyHiddenText text={intl.formatMessage({ id: 'Terra.pills.pillListHint' }, { numberOfPills: updatedChildren && updatedChildren.length })} />
-      {updatedChildren ? renderChildren(updatedChildren) : []}
-      <RollUpPill
-        isCollapsed={isCollapsed}
-        onSelectRollUp={handleOnSelectRollUp}
-        rollupCount={rollupCount.current}
-      />
-    </div>
+    <ResponsiveElement responsiveTo="window" onResize={handleWidthChange}>
+      <div
+        {...pillsProps}
+        aria-label={!ariaLabelledBy ? ariaLabel : undefined}
+        aria-describedby={ariaDescribedBy}
+        className={pillListClassNames}
+        ref={pillsRef}
+        tabIndex={containerTabindex}
+        {...customProps}
+      >
+        <VisuallyHiddenText text={intl.formatMessage({ id: 'Terra.pills.pillListHint' }, { numberOfPills: children && children.length - rollUpCount })} />
+        {children ? renderChildren(children) : []}
+        <RollUpPill
+          isCollapsed={isCollapsed}
+          onSelectRollUp={handleOnSelectRollUp}
+          rollupCount={rollUpCount}
+        />
+      </div>
+    </ResponsiveElement>
+
   );
 };
 

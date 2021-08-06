@@ -13,6 +13,7 @@ import classNamesBind from 'classnames/bind';
 import ThemeContext from 'terra-theme-context';
 import { injectIntl } from 'react-intl';
 import VisuallyHiddenText from 'terra-visually-hidden-text';
+import ResponsiveElement from 'terra-responsive-element';
 import Pill from './Private/_Pill';
 import styles from './Private/Pill.module.scss';
 import RollUpPill from './Private/_RollupPill';
@@ -87,22 +88,21 @@ const SelectablePills = (props) => {
   const selectablePillsRef = useRef();
   const focusNode = useRef(0);
   const currentPill = useRef();
-  const rollupCount = useRef(children.length);
   const prevPillsCount = useRef(0);
   const [containerTabindex, setContainerTabindex] = useState('-1');
-  const [updatedChildren, setUpdatedChildren] = useState(children);
   const isRollUpRemoved = useRef(false);
+  const [updatedCount, setUpdatedCount] = useState(React.Children.count(children));
+  const [rollUpCount, setRollUpCount] = useState(children.length);
 
   const generateRollUp = useCallback(() => {
     const startIndex = RollUpUtils.handleRollUp(selectablePillsRef);
-
-    rollupCount.current = (children.length - startIndex);
-    const reducedArray = React.Children.toArray(children).splice(0, startIndex);
-    setUpdatedChildren(reducedArray);
+    setUpdatedCount(startIndex);
+    setRollUpCount(children.length - startIndex);
   }, [children]);
 
   const generateExpansion = useCallback(() => {
-    setUpdatedChildren(children);
+    setRollUpCount(0);
+    setUpdatedCount(React.Children.count(children));
   }, [children]);
 
   useLayoutEffect(() => {
@@ -111,7 +111,7 @@ const SelectablePills = (props) => {
     } else {
       generateExpansion();
     }
-  }, [children, generateExpansion, generateRollUp, isCollapsed]);
+  }, [children, generateExpansion, generateRollUp, isCollapsed, updatedCount]);
 
   const setTabIndex = (val) => {
     const currentNode = currentPill.current ? selectablePillsRef.current.querySelector(`[id=${currentPill.current}]`) : null;
@@ -129,10 +129,11 @@ const SelectablePills = (props) => {
 
   useEffect(() => {
     const pills = [...selectablePillsRef.current.querySelectorAll('[data-terra-pill]')];
-    const pillCount = pills.length;
     const rollUpPill = selectablePillsRef.current.querySelector('[data-terra-rollup-pill]');
+
+    // if there is a roll Up pill, set tabindex to 0
     if (rollUpPill) {
-      pills.push(rollUpPill);
+      rollUpPill.setAttribute('tabindex', '-1');
     }
 
     if (pills.length > 0) {
@@ -141,23 +142,24 @@ const SelectablePills = (props) => {
       }
     }
 
-    // needs to be verified - lp052179
-    if (isCollapsed && prevPillsCount.current === pillCount) {
-      focusNode.current = 0;
-    }
-
-    // focus the first pill( be it pill or a roll up pill)
+    // set tabIndex 0 for the first pill lp052179
     if (pills.length > 0 && pills.length > focusNode.current) {
       currentPill.current = pills[focusNode.current].id;
       setTabIndex('0');
-      prevPillsCount.current = pills.length;
+    }
+    // if the first pill is rollUp pill, set rollUp pill tabindex 0
+    if (isCollapsed && rollUpPill && pills.length === 0) {
+      currentPill.current = rollUpPill.getAttribute('id');
+      setTabIndex('0');
     }
 
+    prevPillsCount.current = pills.length;
+
     // To focus the immediate focusable pill after the rollUp pill is selected
-    if (pills.length === children.length && isRollUpRemoved.current) {
+    if (isRollUpRemoved.current) {
       focusCurrentNode();
     }
-  }, [isCollapsed, children, updatedChildren]);
+  }, [isCollapsed, children, updatedCount, prevPillsCount]);
 
   const focusNextNode = (pills, rollUpPill) => {
     // if the next pill is roll up pill, focus the roll up pill
@@ -171,8 +173,8 @@ const SelectablePills = (props) => {
     // focus the next pill
     if (focusNode.current + 1 < pills.length) {
       setTabIndex('-1');
-      focusNode.current += 1;
-      currentPill.current = pills[focusNode.current].id;
+      // focusNode.current += 1;
+      currentPill.current = children[focusNode.current + 1].props.id;
       setTabIndex('0');
       focusCurrentNode();
     }
@@ -183,41 +185,48 @@ const SelectablePills = (props) => {
     if (rollUpPill && currentPill.current === 'rollup-pill') {
       setTabIndex('-1');
       focusNode.current = pills.length - 1;
-      currentPill.current = pills[focusNode.current].id;
+      currentPill.current = children[focusNode.current].props.id;
       setTabIndex('0');
       focusCurrentNode();
     } else if (focusNode.current >= 1) { // focus the previous pill
       setTabIndex('-1');
       focusNode.current -= 1;
-      currentPill.current = pills[focusNode.current].id;
+      currentPill.current = children[focusNode.current].props.id;
       setTabIndex('0');
       focusCurrentNode();
     }
   };
 
-  // lp052179 - Not complete - Fails when there is a roll up
-  const focusNodeAfterDelete = (pills, rollUpPill, pillCount) => {
-    if (pills[focusNode.current].hasAttribute('data-terra-pill-removable')) {
+  const focusNodeAfterDelete = (pills, rollUpPill, pillCount, isRemovable) => {
+    if (isRemovable) {
       // If there is only one pill
-      if (pills.length === 1) {
+      if (pills.length === 1 && rollUpPill === null) {
         setContainerTabindex('0');
         selectablePillsRef.current.focus();
+        return;
       }
-      if (pills.length - 1 !== 0 && (pills.length - 1 < prevPillsCount.current)) {
+      if (pills.length - 1 < prevPillsCount.current) {
         setTabIndex('-1');
         if (focusNode.current === 0) { // If the first pill is deleted
-          if (rollUpPill) {
-            focusNode.current += 1;
-            currentPill.current = pills[focusNode.current].id;
-          } else {
-            currentPill.current = pills[focusNode.current + 1].id;
-          }
+          focusNextNode(pills, rollUpPill);
+
+          // if (rollUpPill) {
+          //   if (pills.length === 1) { // if there is only one pill and roll up, then focus the roll up(There is no guarantee the next pill will fit inside the container)
+          //     currentPill.current = rollUpPill.getAttribute('id');
+          //   } else {
+          //     currentPill.current = children[focusNode.current + 1].props.id;
+          //   }
+          // } else {
+          //   currentPill.current = children[focusNode.current + 1].props.id;
+          // }
         } else {
-          focusNode.current -= 1;
-          currentPill.current = pills[focusNode.current].id;
+          focusPreviousNode(pills, rollUpPill);
+          // focusNode.current -= 1;
+          // currentPill.current = children[focusNode.current].props.id;
         }
         setTabIndex('0');
         focusCurrentNode();
+        setUpdatedCount(React.Children.count(children));
         // Reset the previous pills count to latest count after deletion
         prevPillsCount.current = pillCount - 1;
       }
@@ -228,6 +237,7 @@ const SelectablePills = (props) => {
     const pills = [...selectablePillsRef.current.querySelectorAll('[data-terra-pill]')];
     const pillCount = pills.length;
     const rollUpPill = selectablePillsRef.current.querySelector('[data-terra-rollup-pill]');
+    const isPillRemovable = event.target.hasAttribute('data-terra-pill-removable');
 
     switch (event.keyCode) {
       case KEY_RIGHT:
@@ -240,7 +250,7 @@ const SelectablePills = (props) => {
         break;
       case KEY_BACK_SPACE || KEY_DELETE:
         event.preventDefault();
-        focusNodeAfterDelete(pills, rollUpPill, pillCount);
+        focusNodeAfterDelete(pills, rollUpPill, pillCount, isPillRemovable);
         break;
       default:
         break;
@@ -277,7 +287,6 @@ const SelectablePills = (props) => {
       isRollUpRemoved.current = true;
     }
     const pills = selectablePillsRef.current.querySelectorAll('[data-terra-pill]');
-    // verify if all the pills are rolled up - lp052179
     focusNode.current = pills.length;
     currentPill.current = children[focusNode.current].props.id;
   };
@@ -300,33 +309,46 @@ const SelectablePills = (props) => {
     const pills = React.Children.map(items, (pill) => {
       if (React.isValidElement(pill)) {
         return React.cloneElement(pill, {
-          onRemove: handleOnRemove, onSelect: handleOnPillSelect, isBasicPill: false,
+          onRemove: handleOnRemove, onSelect: handleOnPillSelect, isBasicPill: false, ariaDescribedBy: 'terra-pill-visual-hidden-text',
         });
       }
       return undefined;
     });
 
-    return pills;
+    const reducedArray = pills.splice(0, updatedCount);
+
+    return reducedArray;
+  };
+
+  const handleWidthChange = () => {
+    if (isCollapsed) {
+      setUpdatedCount(React.Children.count(children));
+      setRollUpCount(children.length);
+      generateRollUp();
+    }
   };
 
   return (
-    <div
-      {...selectablePillsProps}
-      aria-label={!ariaLabelledBy ? ariaLabel : undefined}
-      aria-describedby={ariaDescribedBy}
-      className={pillListClassNames}
-      ref={selectablePillsRef}
-      tabIndex={containerTabindex}
-      {...customProps}
-    >
-      <VisuallyHiddenText text={intl.formatMessage({ id: 'Terra.pills.pillListHint' }, { numberOfPills: updatedChildren && updatedChildren.length })} />
-      {updatedChildren ? renderChildren(updatedChildren) : []}
-      <RollUpPill
-        isCollapsed={isCollapsed}
-        onSelectRollUp={handleOnSelectRollUp}
-        rollupCount={rollupCount.current}
-      />
-    </div>
+    <ResponsiveElement responsiveTo="window" onResize={handleWidthChange}>
+      <div
+        {...selectablePillsProps}
+        aria-label={!ariaLabelledBy ? ariaLabel : undefined}
+        aria-describedby={ariaDescribedBy}
+        className={pillListClassNames}
+        ref={selectablePillsRef}
+        tabIndex={containerTabindex}
+        {...customProps}
+      >
+        <VisuallyHiddenText id="terra-pill-visual-hidden-text" text={intl.formatMessage({ id: 'Terra.pills.pillListHint' }, { numberOfPills: children.length - rollUpCount })} />
+        {children ? renderChildren(children) : []}
+        <RollUpPill
+          isCollapsed={isCollapsed}
+          onSelectRollUp={handleOnSelectRollUp}
+          rollupCount={rollUpCount}
+        />
+      </div>
+    </ResponsiveElement>
+
   );
 };
 

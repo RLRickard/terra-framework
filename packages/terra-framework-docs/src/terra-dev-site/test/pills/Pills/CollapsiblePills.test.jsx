@@ -43,8 +43,15 @@ const CollapsibleBasicPills = () => {
       id: 'terra-pills-example-disclosure-removable-pill-fibro4',
     },
   ];
-  const [pillsState] = useState(pillsData);
+  const [pillsState, setPillsState] = useState(pillsData);
   const [isCollapsed, setIsCollapsed] = useState(true);
+
+  const handleOnRemove = (pillKey, metaData) => {
+    const pillsArray = pillsState;
+    pillsArray.splice(metaData.index, 1);
+    setPillsState([...pillsArray]);
+  };
+
   return (
     <>
       <p>In consistent with keyboard navigation and removal when its collapsed </p>
@@ -52,6 +59,7 @@ const CollapsibleBasicPills = () => {
         ariaLabel="Example of a Collapsible Basic Pill"
         isCollapsed={isCollapsed}
         onSelectRollUp={() => setIsCollapsed(false)}
+        onRemove={handleOnRemove}
         className={cx(['container', 'show-border', 'width-200'])}
       >
         {pillsState.map((pill, index) => (
